@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sentiment Classifier — Try it</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --card-bg: #ffffff;
+    --border: #e5e7eb;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --accent: #4f46e5;
+    --accent-hover: #4338ca;
+    --pos: #16a34a;
+    --neg: #dc2626;
+    --neu: #6b7280;
+    --radius: 10px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 40px 20px;
+    background: var(--bg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 720px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 32px 32px;
+  }
+
+  .card h2 {
+    margin: 0 0 18px;
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 90px;
+    resize: vertical;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: #fcfcfc;
+    padding: 14px 16px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 15px;
+    color: var(--text);
+    outline: none;
+  }
+
+  textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 16px;
+  }
+
+  button#classifyBtn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    padding: 12px 22px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.15s ease;
+  }
+
+  button#classifyBtn:hover { background: var(--accent-hover); }
+  button#classifyBtn:disabled { background: #a5a5e8; cursor: not-allowed; }
+
+  select#modelSelect {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    font-size: 15px;
+    background: white;
+    color: var(--text);
+    cursor: pointer;
+    outline: none;
+  }
+
+  select#modelSelect:focus { border-color: var(--accent); }
+
+  .result {
+    margin-top: 18px;
+    font-size: 15px;
+    color: var(--muted);
+    min-height: 24px;
+  }
+
+  .result.error { color: #9ca3af; }
+
+  .result .label {
+    font-weight: 700;
+    text-transform: capitalize;
+  }
+
+  .label.joy, .label.love, .label.surprise { color: var(--pos); }
+  .label.sadness, .label.anger, .label.fear { color: var(--neg); }
+
+  .confidence {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .footer-note {
+    margin-top: 22px;
+    font-size: 12.5px;
+    color: #9ca3af;
+  }
+
+  .footer-note code {
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h2>Try it</h2>
+
+  <textarea id="textInput" placeholder="Type a sentence to classify...">I am happy today</textarea>
+
+  <div class="controls">
+    <button id="classifyBtn">Classify &rarr;</button>
+    <select id="modelSelect">
+      <option value="logreg_tfidf">Logistic Regression + TF-IDF (86.3%)</option>
+      <option value="naive_bayes_bow">Naive Bayes + Bag-of-Words (76.8%)</option>
+      <option value="naive_bayes_tfidf">Naive Bayes + TF-IDF (66.1%)</option>
+    </select>
+  </div>
+
+  <div id="result" class="result"></div>
+
+  <div class="footer-note">
+    API endpoint: <code id="endpointDisplay"></code> — edit <code>API_BASE_URL</code> in the script to point at your backend.
+  </div>
+</div>
+
+<script>
+  // ---------------------------------------------------------------
+  // CONFIG — point this at your own backend before deploying.
+  // Expected backend contract:
+  //   POST {API_BASE_URL}/predict
+  //   body: { "text": "...", "model": "logreg_tfidf" }
+  //   response: { "label": "positive" | "negative" | "neutral", "confidence": 0.93 }
+  // ---------------------------------------------------------------
+  const API_BASE_URL = "http://localhost:8000"; // <-- change this
+  const DEMO_MODE = true; // set to false once your real API is wired up
+
+  const textInput = document.getElementById("textInput");
+  const classifyBtn = document.getElementById("classifyBtn");
+  const modelSelect = document.getElementById("modelSelect");
+  const resultEl = document.getElementById("result");
+  const endpointDisplay = document.getElementById("endpointDisplay");
+
+  endpointDisplay.textContent = `${API_BASE_URL}/predict`;
+
+  function setLoading(isLoading) {
+    classifyBtn.disabled = isLoading;
+    classifyBtn.textContent = isLoading ? "Classifying..." : "Classify →";
+  }
+
+  function renderResult(label, confidence) {
+    resultEl.classList.remove("error");
+    const pct = (confidence * 100).toFixed(1);
+    resultEl.innerHTML =
+      `Prediction: <span class="label ${label}">${label}</span> ` +
+      `<span class="confidence">(${pct}% confidence)</span>`;
+  }
+
+  function renderError(message) {
+    resultEl.classList.add("error");
+    resultEl.textContent = message || "Error — check API connection.";
+  }
+
+  // Lightweight stand-in so the UI is testable before a backend exists.
+  // Remove this once DEMO_MODE is false and a real API is connected.
+  function fakeClassify(text) {
+    const lower = text.toLowerCase();
+    const buckets = {
+      joy: ["happy", "good", "great", "love", "awesome", "excellent", "amazing", "glad"],
+      sadness: ["sad", "down", "hopeless", "depressed", "lonely", "cry"],
+      anger: ["angry", "mad", "furious", "hate", "annoyed", "rude"],
+      fear: ["afraid", "scared", "nervous", "anxious", "worried", "terrified"],
+      surprise: ["surprised", "shocked", "unexpected", "wow"],
+      love: ["love", "adore", "cherish", "affection"]
+    };
+    let bestLabel = "joy";
+    let bestScore = 0;
+    for (const [label, words] of Object.entries(buckets)) {
+      const score = words.filter(w => lower.includes(w)).length;
+      if (score > bestScore) { bestScore = score; bestLabel = label; }
+    }
+    const confidence = bestScore > 0 ? Math.min(0.6 + bestScore * 0.15, 0.97) : 0.45;
+    return new Promise(resolve => setTimeout(() => resolve({ label: bestLabel, confidence }), 500));
+  }
+
+  async function classify() {
+    const text = textInput.value.trim();
+    if (!text) {
+      renderError("Please enter some text first.");
+      return;
+    }
+
+    setLoading(true);
+    resultEl.textContent = "";
+
+    try {
+      let data;
+
+      if (DEMO_MODE) {
+        data = await fakeClassify(text);
+      } else {
+        const response = await fetch(`${API_BASE_URL}/predict`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text, model: modelSelect.value })
+        });
+
+        if (!response.ok) throw new Error(`API returned ${response.status}`);
+        data = await response.json();
+      }
+
+      renderResult(data.label, data.confidence);
+    } catch (err) {
+      console.error(err);
+      renderError("Error — check API connection.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  classifyBtn.addEventListener("click", classify);
+  textInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) classify();
+  });
+</script>
+
+</body>
+</html>
